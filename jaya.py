@@ -187,7 +187,7 @@ def process_triplet(base_url, org_id, course_id, file_name, org_name):
         return
 
     safe_name = re.sub(r'[<>:"/\\|?*]', '_', file_name)
-#    file_path = f'/⁨Files/On My iPhone/txt group⁩/{safe_name}.txt'
+    file_path = f'/storage/emulated/0/.backups/txt/{safe_name}.txt'
     os.makedirs(os.path.dirname(file_path), exist_ok=True)
 
     with open(file_path, 'w') as f:
