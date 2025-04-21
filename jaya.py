@@ -1,7 +1,7 @@
 import requests, base64, json, os, re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-BOT_TOKEN = "7371624181:AAHYjEBP_zc7nUV9LK4aGPDswMpUweoGzSk"
+BOT_TOKEN = "7882173382:AAEJOw7bGDVma8N1EcoF_dEVe8KGfZJVam0"
 CHANNEL_ID = "-1002561863718"
 
 # Global session with retries and connection pooling
