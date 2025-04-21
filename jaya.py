@@ -241,13 +241,19 @@ def get_updates():
         print(f"Error fetching updates: {e}")
     return {}
 
-def handle_message(message):
+
+def handle_message(update):
     global LAST_UPDATE_ID
-    LAST_UPDATE_ID = message["update_id"]
-    
-    chat_id = message["message"]["chat"]["id"]
-    text = message["message"].get("text", "")
-    
+    LAST_UPDATE_ID = update["update_id"]
+
+    if "message" not in update:
+        print("Non-message update received, skipping.")
+        return
+
+    message = update["message"]
+    chat_id = message["chat"]["id"]
+    text = message.get("text", "").strip()
+
     if text.startswith("/orgenter "):
         org_code = text.split("/orgenter ", 1)[1].strip()
         org_id, org_name = get_org_details(org_code)
@@ -297,9 +303,8 @@ def handle_message(message):
             response_lines.append("\nReply with a number (e.g., 1) to process the course.")
             send_telegram_message(chat_id, "\n".join(response_lines))
 
-        # Optional: store the triplets per chat_id if multiple users use this bot
         chat_triplets[chat_id] = (triplets, org_name)
-    
+
     elif text.isdigit():
         triplet_data = chat_triplets.get(chat_id)
         if not triplet_data:
@@ -313,6 +318,7 @@ def handle_message(message):
             process_triplet(base_url, org_id, cid, name, org_name)
         else:
             send_telegram_message(chat_id, "Invalid course number.")
+
 
 def send_telegram_message(chat_id, text):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
