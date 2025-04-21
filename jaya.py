@@ -227,66 +227,107 @@ def send_file(file_path, course_name, coaching_name):
         except Exception as e:
             print(f"Error sending file: {e}")
 
-if __name__ == "__main__":
-    org_code = input("Enter org code: ")
 
-    org_id, org_name = get_org_details(org_code)
-    if org_id and org_name:
+import time
+
+LAST_UPDATE_ID = 0
+
+def get_updates():
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates?offset={LAST_UPDATE_ID + 1}"
+    try:
+        r = session.get(url)
+        return r.json()
+    except Exception as e:
+        print(f"Error fetching updates: {e}")
+    return {}
+
+def handle_message(message):
+    global LAST_UPDATE_ID
+    LAST_UPDATE_ID = message["update_id"]
+    
+    chat_id = message["message"]["chat"]["id"]
+    text = message["message"].get("text", "")
+    
+    if text.startswith("/orgenter "):
+        org_code = text.split("/orgenter ", 1)[1].strip()
+        org_id, org_name = get_org_details(org_code)
+        if not org_id:
+            send_telegram_message(chat_id, "Invalid org code.")
+            return
+
         updated_base = update_base_url(org_id)
-        if updated_base:
-            print(f"Updated Base URL: {updated_base}")
-            courses = fetch_json(updated_base)
-            if courses:
-                displayed = set()
-                triplets = []
-                serial = 1
-                print("Available courses:")
-                sections = ['popular', 'recent', 'feature', 'all', 'upcomingLiveClasses']
-                for sec in sections:
-                    sec_data = courses.get('data', {}).get(sec, {})
-                    for course in sec_data.get('coursesData', []):
-                        cid = course.get('id')
-                        if course.get('orgId') and cid and course.get('name') and cid not in displayed:
-                            print(f"{serial}. {course.get('name')} : {cid}")
-                            displayed.add(cid)
-                            triplets.append((course.get('orgId'), cid, course.get('name').replace(' ', '_')))
-                            serial += 1
-                similar_url = update_similar_url(org_id)
-                similar_courses = fetch_json(similar_url)
-                if similar_courses:
-                    similar_list = similar_courses.get('data', {}).get('coursesData', [])
-                    for course in similar_list:
-                        cid = course.get('id')
-                        if course.get('orgId') and cid and course.get('name') and cid not in displayed:
-                            print(f"{serial}. {course.get('name')} : {cid}")
-                            displayed.add(cid)
-                            triplets.append((course.get('orgId'), cid, course.get('name').replace(' ', '_')))
-                            serial += 1
-                if not triplets:
-                    print("No courses found.")
-                else:
-                    sel = input("Enter the serial number(s) to process (e.g., 1,2,3 or 'all'): ").strip()
-                    base_url = "https://api.classplusapp.com/v2/course/preview/content/list/eyJjb3Vyc2VJZCI6IjUzNDY4NyIsInR1dG9ySWQiOm51bGwsIm9yZ0lkIjo3NjMzMjAsImNhdGVnb3J5SWQiOm51bGx9?folderId=0&limit=10000&offset=0"
-                    if sel.lower() == "all":
-                        print("Processing all courses simultaneously...")
-                        with ThreadPoolExecutor(max_workers=20) as executor:
-                            futures = [executor.submit(process_triplet, base_url, trip[0], trip[1], trip[2], org_name)
-                                       for trip in triplets]
-                            for fut in as_completed(futures):
-                                fut.result()
-                    else:
-                        for i in sel.split(','):
-                            try:
-                                idx = int(i.strip()) - 1
-                                if 0 <= idx < len(triplets):
-                                    process_triplet(base_url, *triplets[idx], org_name)
-                                else:
-                                    print(f"Serial number {i.strip()} is out of range.")
-                            except ValueError:
-                                print(f"Invalid input: {i.strip()}")
-            else:
-                print("Failed to fetch courses from the updated base URL.")
+        if not updated_base:
+            send_telegram_message(chat_id, "Failed to update base URL.")
+            return
+
+        courses = fetch_json(updated_base)
+        if not courses:
+            send_telegram_message(chat_id, "No courses found.")
+            return
+
+        response_lines = ["Available courses:"]
+        displayed = set()
+        triplets = []
+        serial = 1
+        sections = ['popular', 'recent', 'feature', 'all', 'upcomingLiveClasses']
+        for sec in sections:
+            sec_data = courses.get('data', {}).get(sec, {})
+            for course in sec_data.get('coursesData', []):
+                cid = course.get('id')
+                if course.get('orgId') and cid and course.get('name') and cid not in displayed:
+                    response_lines.append(f"{serial}. {course.get('name')} : {cid}")
+                    displayed.add(cid)
+                    triplets.append((course.get('orgId'), cid, course.get('name').replace(' ', '_')))
+                    serial += 1
+
+        similar_url = update_similar_url(org_id)
+        similar_courses = fetch_json(similar_url)
+        if similar_courses:
+            for course in similar_courses.get('data', {}).get('coursesData', []):
+                cid = course.get('id')
+                if course.get('orgId') and cid and course.get('name') and cid not in displayed:
+                    response_lines.append(f"{serial}. {course.get('name')} : {cid}")
+                    displayed.add(cid)
+                    triplets.append((course.get('orgId'), cid, course.get('name').replace(' ', '_')))
+                    serial += 1
+
+        if not triplets:
+            send_telegram_message(chat_id, "No courses found.")
         else:
-            print("Failed to update base URL.")
-    else:
-        print("Invalid org code.")
+            response_lines.append("\nReply with a number (e.g., 1) to process the course.")
+            send_telegram_message(chat_id, "\n".join(response_lines))
+
+        # Optional: store the triplets per chat_id if multiple users use this bot
+        chat_triplets[chat_id] = (triplets, org_name)
+    
+    elif text.isdigit():
+        triplet_data = chat_triplets.get(chat_id)
+        if not triplet_data:
+            send_telegram_message(chat_id, "Please use /orgenter <org_code> first.")
+            return
+        idx = int(text) - 1
+        triplets, org_name = triplet_data
+        if 0 <= idx < len(triplets):
+            org_id, cid, name = triplets[idx]
+            base_url = "https://api.classplusapp.com/v2/course/preview/content/list/eyJjb3Vyc2VJZCI6IjUzNDY4NyIsInR1dG9ySWQiOm51bGwsIm9yZ0lkIjo3NjMzMjAsImNhdGVnb3J5SWQiOm51bGx9?folderId=0&limit=10000&offset=0"
+            process_triplet(base_url, org_id, cid, name, org_name)
+        else:
+            send_telegram_message(chat_id, "Invalid course number.")
+
+def send_telegram_message(chat_id, text):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    try:
+        session.post(url, data={'chat_id': chat_id, 'text': text})
+    except Exception as e:
+        print(f"Error sending Telegram message: {e}")
+
+chat_triplets = {}
+
+if __name__ == "__main__":
+    print("Bot is running...")
+    while True:
+        updates = get_updates()
+        if updates.get("ok"):
+            for result in updates["result"]:
+                handle_message(result)
+        time.sleep(1)
